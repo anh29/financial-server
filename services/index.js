@@ -1,18 +1,33 @@
-const { default: axios } = require('axios');
-const FormData = require('form-data');
-const { API_URL } = require('../utils/constants');
+const { default: axios } = require("axios");
+const { GOOGLE_SCRIPT_URL } = require("../utils/constants");
 
-async function sendToGoogleAppsScript({params, type}) {
-  const formData = new FormData();
-  formData.append('type', type);
-  formData.append('params', JSON.stringify(params));
-
+async function sendToGoogleAppsScript({ method, params, type }) {
   try {
-    const response = await axios.post(API_URL, formData);
-    return response.data;
-  } catch (error) {
-    console.error('Error communicating with Google Apps Script:', error.message);
-    throw new Error('Failed to communicate with Google Apps Script.');
+    const url = new URL(GOOGLE_SCRIPT_URL);
+    url.searchParams.append("type", type);
+
+    // Append all params for GET
+    if (method === "GET") {
+      params && Object.entries(params).forEach(([key, val]) => {
+        url.searchParams.append(key, String(val));
+      });
+
+      const res = await axios.get(url.toString());
+      return res.data;
+    }
+
+    // POST: send in body
+    const res = await axios.post(url.toString(), params, {
+      headers: { "Content-Type": "application/json" },
+    });
+
+    return res.data;
+  } catch (err) {
+    console.error(`[Google Script API Error]`, err);
+    return {
+      status: 500,
+      message: `Server error while contacting Google Script: ${err}`,
+    };
   }
 }
 
