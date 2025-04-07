@@ -44,7 +44,7 @@ async function updateUser(req, res) {
     type: REQUEST_TYPES.UPDATE_USER,
     params: {
       ...req.body,
-      userId: req.params.userId,
+      id: req.params.userId,
     },
   });
   console.log("[UPDATE USER] Response data:", data);
