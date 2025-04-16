@@ -1,6 +1,43 @@
 const { default: axios } = require("axios");
 const { GOOGLE_SCRIPT_URL } = require("../utils/constants");
 
+const callGAS = async (path, method = "GET", payload = {}) => {
+  const baseUrl = GOOGLE_SCRIPT_URL;
+  let url = `${baseUrl}?path=${path}`;
+
+  // Attach query params for GET requests
+  if (method === "GET" && payload.userId) {
+    url += `&userId=${payload.userId}`;
+  }
+  if (method === "GET" && payload.id) {
+    url += `&id=${payload.id}`;
+  }
+  console.log(`[GAS] ${method} ${path} URL:`, url);
+
+  try {
+    const res = await axios({
+      method,
+      url,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      ...(method === "POST" && { data: payload }),
+    });
+
+    return res.data;
+  } catch (error) {
+    console.error(
+      `❌ GAS call failed [${path}]:`,
+      error.response?.data || error.message
+    );
+    return {
+      success: false,
+      message: "Google Apps Script API call failed",
+      error: error.response?.data || error.message,
+    };
+  }
+};
+
 async function sendToGoogleAppsScript({ method, params, type }) {
   try {
     const url = new URL(GOOGLE_SCRIPT_URL);
@@ -8,9 +45,10 @@ async function sendToGoogleAppsScript({ method, params, type }) {
 
     // Append all params for GET
     if (method === "GET") {
-      params && Object.entries(params).forEach(([key, val]) => {
-        url.searchParams.append(key, String(val));
-      });
+      params &&
+        Object.entries(params).forEach(([key, val]) => {
+          url.searchParams.append(key, String(val));
+        });
 
       const res = await axios.get(url.toString());
       return res.data;
@@ -31,4 +69,4 @@ async function sendToGoogleAppsScript({ method, params, type }) {
   }
 }
 
-module.exports = { sendToGoogleAppsScript };
+module.exports = { sendToGoogleAppsScript, callGAS };
