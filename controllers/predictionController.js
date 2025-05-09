@@ -1,6 +1,6 @@
 const { default: axios } = require("axios");
 const { estimateUsageDuration } = require("../utils/estimateUsageDuration");
-const { MODEL_URL, MODEL_PREDICT_ENDPOINT } = require("../utils/constants");
+const { MODEL_URL } = require("../utils/constants");
 const { sendToGoogleAppsScript } = require("../services");
 const { REQUEST_TYPES } = require("../utils/requestTypes");
 
@@ -10,7 +10,7 @@ const predictCategory = (req, res) => {
 
   try {
     axios
-      .post(`${MODEL_URL}/${MODEL_PREDICT_ENDPOINT}`, {
+      .post(MODEL_URL, {
         texts: content,
       })
       .then((response) => {

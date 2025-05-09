@@ -1,4 +1,6 @@
+const { default: axios } = require('axios');
 const { callGAS } = require('../services');
+const { MODEL_URL, categoryKeyMap } = require('../utils/constants');
 const { handleGoogleAppsScriptResponse } = require('../utils/responseHandler');
 
 const getDashboardStats = async (req, res) => {
@@ -87,6 +89,42 @@ const checkGoalReminders = async (req, res) => {
   handleGoogleAppsScriptResponse(res, result);
 };
 
+const predictCategory = async (req, res) => {
+  console.log("[PREDICT CATEGORY] Request body:", req.body);
+
+  try {
+    const response = await axios.post(MODEL_URL, req.body);
+    const confidences = response.data.category_confidence;
+
+    console.log("[PREDICT CATEGORY] Model response:", confidences);
+
+    // Find the highest-confidence category
+    let maxLabel = null;
+    let maxConfidence = -1;
+
+    for (const [label, confidence] of Object.entries(confidences)) {
+      if (confidence > maxConfidence) {
+        maxConfidence = confidence;
+        maxLabel = label;
+      }
+    }
+
+    const key = categoryKeyMap[maxLabel];
+
+    res.status(200).json({
+      predictedCategory: {
+        label: maxLabel,
+        key: key
+      }
+    });
+  } catch (error) {
+    console.error("[PREDICT CATEGORY] Error:", error.message);
+    res.status(500).json({
+      error: error.message || "An error occurred during prediction."
+    });
+  }
+};
+
 module.exports = {
   getDashboardStats,
   predictRecurringTransactions,
@@ -98,5 +136,6 @@ module.exports = {
   confirmOCRTransaction,
   predictUsageDuration,
   checkBudgetAlerts,
-  checkGoalReminders
+  checkGoalReminders,
+  predictCategory,
 };

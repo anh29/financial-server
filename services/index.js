@@ -13,6 +13,7 @@ const callGAS = async (path, method = "GET", payload = {}) => {
     url += `&id=${payload.id}`;
   }
   console.log(`[GAS] ${method} ${path} URL:`, url);
+  console.log(`[GAS] ${method} ${path} Payload:`, payload);
 
   try {
     const res = await axios({

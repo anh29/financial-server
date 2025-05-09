@@ -11,6 +11,7 @@ const {
   predictUsageDuration,
   checkBudgetAlerts,
   checkGoalReminders,
+  predictCategory,
 } = require("../controllers/smart.controller");
 
 const router = express.Router();
@@ -26,5 +27,6 @@ router.post('/ocr/confirm', confirmOCRTransaction);
 router.post('/predictUsageDuration', predictUsageDuration);
 router.get('/alerts/budget/:userId', checkBudgetAlerts);
 router.get('/reminders/goals/:userId', checkGoalReminders);
+router.post('/category', predictCategory);
 
 module.exports = router;

@@ -9,6 +9,7 @@ const express = require("express");
 const crudRoutes = require("./crud.routes");
 const smartRoutes = require("./smart.routes");
 const authRoutes = require("./auth.routes");
+const marketplaceRoutes = require("./marketplace.routes");
 
 const router = express.Router();
 
@@ -21,5 +22,6 @@ const router = express.Router();
 router.use('/crud', crudRoutes);
 router.use('/smart', smartRoutes);
 router.use('/auth', authRoutes);
+router.use('/marketplace', marketplaceRoutes);
 
 module.exports = { router };
