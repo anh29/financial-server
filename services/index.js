@@ -6,11 +6,10 @@ const callGAS = async (path, method = "GET", payload = {}) => {
   let url = `${baseUrl}?path=${path}`;
 
   // Attach query params for GET requests
-  if (method === "GET" && payload.userId) {
-    url += `&userId=${payload.userId}`;
-  }
-  if (method === "GET" && payload.id) {
-    url += `&id=${payload.id}`;
+  if (method === "GET") {
+    Object.entries(payload).forEach(([key, value]) => {
+      url += `&${key}=${value}`;
+    });
   }
   console.log(`[GAS] ${method} ${path} URL:`, url);
   console.log(`[GAS] ${method} ${path} Payload:`, payload);

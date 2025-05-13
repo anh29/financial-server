@@ -1,5 +1,4 @@
 function handleGoogleAppsScriptResponse(res, data) {
-  console.log('[HANDLE GOOGLE APPS SCRIPT RESPONSE] Data:', data);
   if (data.status === 200) {
     res.status(200).json({
       message: data.message,
