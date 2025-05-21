@@ -11,7 +11,7 @@ const callGAS = async (path, method = "GET", payload = {}) => {
       url += `&${key}=${value}`;
     });
   }
-  console.log(`[GAS] ${method} ${path} URL:`, url);
+  console.log(`[GAS] ${method} ${path} URL:`, path);
   console.log(`[GAS] ${method} ${path} Payload:`, payload);
 
   try {

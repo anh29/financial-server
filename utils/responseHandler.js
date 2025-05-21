@@ -1,14 +1,19 @@
-function handleGoogleAppsScriptResponse(res, data) {
-  if (data.status === 200) {
-    res.status(200).json({
-      message: data.message,
-      data: data.data,
-    });
-  } else {
-    res.status(data.status || 400).json({
-      error: data.error || 'An error occurred while processing the request.',
-    });
+const logger = require('./logger');
+
+const handleGoogleAppsScriptResponse = (res, result) => {
+  if (!result) {
+    return res.status(500).json({ error: 'No response from Google Apps Script' });
   }
-}
+
+  if (result.error) {
+    logger.error('GAS Error:', result.error);
+    return res.status(400).json({ error: result.error });
+  }
+
+  return res.status(200).json({
+    message: result.message || 'Success',
+    data: result.data
+  });
+};
 
 module.exports = { handleGoogleAppsScriptResponse };
