@@ -93,30 +93,10 @@ const predictCategory = async (req, res) => {
   console.log("[PREDICT CATEGORY] Request body:", req.body);
 
   try {
-    const response = await axios.post(MODEL_URL, req.body);
-    const confidences = response.data.category_confidence;
+    const { data } = await axios.post(MODEL_URL, req.body);
+    console.log("[PREDICT CATEGORY] Response result:", data);
 
-    console.log("[PREDICT CATEGORY] Model response:", confidences);
-
-    // Find the highest-confidence category
-    let maxLabel = null;
-    let maxConfidence = -1;
-
-    for (const [label, confidence] of Object.entries(confidences)) {
-      if (confidence > maxConfidence) {
-        maxConfidence = confidence;
-        maxLabel = label;
-      }
-    }
-
-    const key = categoryKeyMap[maxLabel];
-
-    res.status(200).json({
-      predictedCategory: {
-        label: maxLabel,
-        key: key
-      }
-    });
+    res.status(200).json(data);
   } catch (error) {
     console.error("[PREDICT CATEGORY] Error:", error.message);
     res.status(500).json({
