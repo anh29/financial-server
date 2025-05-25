@@ -7,6 +7,7 @@ const {
   getUserIncomeAndBudgets,
   getExpensesTransactions,
   getDashboardStats,
+  getUserGoalsWithProgress,
   predictRecurringTransactions,
   detectNewRecurringPatterns,
   getSmartSuggestions,
@@ -17,7 +18,9 @@ const {
   predictUsageDuration,
   checkBudgetAlerts,
   checkGoalReminders,
-  predictCategory
+  predictCategory,
+  getRemainingBudget,
+  allocateSavingToGoals,
 } = require("../controllers/marketplace.controller");
 
 const router = express.Router();
@@ -27,23 +30,33 @@ router.use("/user/:userId", validateUserId);
 
 // Marketplace routes
 router.get("/getLatestTransaction/user/:userId", getLatestTransaction);
-router.get("/getMonthlyBudgetWithAllocations/user/:userId/month/:month", validateMonth, getMonthlyBudgetWithAllocations);
-router.get("/getHistoricalExpenditures/user/:userId", getHistoricalExpenditures);
+router.get(
+  "/getMonthlyBudgetWithAllocations/user/:userId/month/:month",
+  validateMonth,
+  getMonthlyBudgetWithAllocations
+);
+router.get(
+  "/getHistoricalExpenditures/user/:userId",
+  getHistoricalExpenditures
+);
 router.get("/getUserIncomeAndBudgets/user/:userId", getUserIncomeAndBudgets);
 router.get("/getExpensesTransactions/user/:userId", getExpensesTransactions);
 
 // Smart routes
-router.get('/dashboard/:userId', getDashboardStats);
-router.get('/predictRecurring/:userId', predictRecurringTransactions);
-router.get('/detectRecurring/:userId', detectNewRecurringPatterns);
-router.get('/suggestions/:userId', getSmartSuggestions);
-router.get('/goals/suggest/:userId', suggestSmartGoals);
-router.get('/expenseByCategory/:userId', getExpenseByCategory);
-router.get('/ocr/pending/:userId', getPendingOCRReview);
-router.post('/ocr/confirm', confirmOCRTransaction);
-router.post('/predictUsageDuration', predictUsageDuration);
-router.get('/alerts/budget/:userId', checkBudgetAlerts);
-router.get('/reminders/goals/:userId', checkGoalReminders);
-router.post('/category', predictCategory);
+router.get("/dashboard/:userId", getDashboardStats);
+router.get("/predictRecurring/:userId", predictRecurringTransactions);
+router.get("/detectRecurring/:userId", detectNewRecurringPatterns);
+router.get("/suggestions/:userId", getSmartSuggestions);
+router.get("/goals/suggest/:userId", suggestSmartGoals);
+router.get("/expenseByCategory/:userId", getExpenseByCategory);
+router.get("/ocr/pending/:userId", getPendingOCRReview);
+router.post("/ocr/confirm", confirmOCRTransaction);
+router.post("/predictUsageDuration", predictUsageDuration);
+router.get("/alerts/budget/:userId", checkBudgetAlerts);
+router.get("/reminders/goals/:userId", checkGoalReminders);
+router.post("/category", predictCategory);
+router.get("/getUserGoalsWithProgress/user/:userId", getUserGoalsWithProgress);
+router.get("/getRemainingBudget/user/:userId/month/:month", getRemainingBudget);
+router.get("/allocateSavingToGoals/user/:userId/amount/:amount", allocateSavingToGoals);
 
 module.exports = router;
