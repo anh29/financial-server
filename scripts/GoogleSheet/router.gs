@@ -1,3 +1,6 @@
+// 📁 router.gs
+// Central router that connects HTTP requests to util handlers
+
 function doPost(e) {
   const path = e.parameter.path;
 
@@ -23,6 +26,8 @@ function doPost(e) {
     case 'addNotifications': return addRecordGeneric(e, TABLES.notifications);
     case 'addMonthlyBudgets': return addRecordGeneric(e, TABLES.monthlyBudgets);
     case 'addMonthlyBudgetAllocations': return addRecordGeneric(e, TABLES.monthlyBudgetAllocations);
+    case 'addGoalContributions': return addRecordGeneric(e, TABLES.goalContributions);
+    case 'addBills': return addBills(e, TABLES.bills);
 
     // Generic update routes
     case 'updateUsers': return updateUser(e);
@@ -39,6 +44,8 @@ function doPost(e) {
     case 'updateNotifications': return updateRecordByIdGeneric(e, TABLES.notifications);
     case 'updateMonthlyBudgets': return updateRecordByIdGeneric(e, TABLES.monthlyBudgets);
     case 'updateMonthlyBudgetAllocations': return updateRecordByIdGeneric(e, TABLES.monthlyBudgetAllocations);
+    case 'updateGoalContributions': return updateRecordByIdGeneric(e, TABLES.goalContributions);
+    case 'updateBills': return updateBills(e, TABLES.bills);
 
     default:
       return sendResponse(400, { message: `Unknown POST path: ${path}` });
@@ -59,6 +66,10 @@ function doGet(e) {
     case 'getHistoricalExpenditures': return getHistoricalExpenditures(e);
     case 'getUserIncomeAndBudgets': return getUserIncomeAndBudgets(e);
     case 'getExpensesTransactions': return getExpensesTransactions(e);
+    case 'getUserGoalsWithProgress': return getUserGoalsWithProgress(e);
+    case 'saveGoalContribution': return saveGoalContribution(e);
+    case 'getRemainingBudget': return getRemainingBudget(e);
+    case 'allocateSavingToGoals': return allocateSavingToGoals(e);
     
     // Users
     case 'getAllUsers': return getAllRecordsGeneric(TABLES.users);
@@ -89,6 +100,11 @@ function doGet(e) {
     case 'getTransactionsById': return getRecordByIdGeneric(e, TABLES.transactions);
     case 'getTransactionsByUser': return getRecordsByUserIdGeneric(e, TABLES.transactions);
     case 'deleteTransactionsById': return deleteRecordByIdGeneric(e.parameter.id, TABLES.transactions);
+
+    case 'getAllBills': return getAllRecordsGeneric(TABLES.bills);
+    case 'getBillsById': return getRecordByIdGeneric(e, TABLES.bills);
+    case 'getBillsByUser': return getRecordsByUserIdGeneric(e, TABLES.bills);
+    case 'deleteBillsById': return deleteRecordByIdGeneric(e.parameter.id, TABLES.bills);
 
     case 'getAllCategories': return getAllRecordsGeneric(TABLES.categories);
     case 'getCategoriesById': return getRecordByIdGeneric(e, TABLES.categories);

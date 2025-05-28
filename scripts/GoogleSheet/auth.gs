@@ -52,7 +52,7 @@ function signIn(e) {
     return sendResponse(400, { error: "Missing login credentials: email or username is required." });
   }
 
-  if (!params.password) {
+  if (!params.password && !params.via_google) {
     return sendResponse(400, { error: "Missing password." });
   }
 

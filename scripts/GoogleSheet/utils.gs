@@ -1,21 +1,19 @@
+// 📁 utils.gs
+// Utility functions for interacting with Sheets in a modular way
+
 const TABLES = {
   users: 'Users',
   accounts: 'Accounts',
   transactions: 'Transactions',
-  categories: 'Categories',
-  tags: 'Tags',
-  transactionTags: 'TransactionTags',
   budgets: 'Budgets',
   goals: 'Goals',
-  recurringPatterns: 'RecurringPatterns',
-  ocrReceipts: 'OCRReceipts',
-  activityLogs: 'ActivityLogs',
-  notifications: 'Notifications',
+  goalContributions: 'GoalContributions',
   monthlyBudgets: 'MonthlyBudgets',
   monthlyBudgetAllocations: 'MonthlyBudgetAllocations',
+  bills: 'Bills',
 };
 
-const CATEGORIES_DURATION = { shopping: 90, food_drink: 3, moving: 1, house: 90, health: 30, entertainment: 7, investigation: 365, sociality: 1 };
+const CATEGORIES_DURATION = { shopping: 90, food_drink: 3, moving: 7, house: 90, health: 30, entertainment: 7, investigation: 365, sociality: 1 };
 
 function sortByCreatedAtDesc(records) {
   return records.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));

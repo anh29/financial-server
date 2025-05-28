@@ -1,6 +1,223 @@
+/** 
+ * SMART MODULES: All below are reusable, atomic logic handlers
+ */
 function monthStr(month) {
   const date = (month instanceof Date) ? month : new Date(month);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function allocateSavingToGoals(e) {
+  const { userId, amount } = e.parameter;
+  if (!userId || !amount || isNaN(amount) || amount <= 0) {
+    return sendResponse(400, { message: "Missing or invalid parameters" });
+  }
+
+  const today = new Date();
+  const rawGoals = sheetToObjects(TABLES.goals)
+    .filter(g => g.userId === userId && g.status === 'active' && Number(g.missing_amount) > 0);
+
+  if (rawGoals.length === 0) {
+    return sendResponse(200, { message: "No goals need funding", data: [] });
+  }
+
+  // Tính tổng thiếu
+  const totalMissing = rawGoals.reduce((sum, g) => sum + Number(g.missing_amount), 0);
+
+  // Gán điểm ưu tiên cho mỗi goal
+  const weightedGoals = rawGoals.map(g => {
+    const missing = Number(g.missing_amount);
+    const deadline = g.target_date ? new Date(g.target_date) : new Date("2100-01-01");
+    const monthsLeft = Math.max(1, (deadline.getFullYear() - today.getFullYear()) * 12 + (deadline.getMonth() - today.getMonth()));
+
+    const deadlineScore = 1 / monthsLeft;
+    const missingScore = missing / totalMissing;
+
+    const priorityScore = deadlineScore * 0.7 + missingScore * 0.3;
+
+    return {
+      goal_id: g.id,
+      title: g.title,
+      missing,
+      priorityScore
+    };
+  });
+
+  // Tổng điểm
+  const totalPriority = weightedGoals.reduce((sum, g) => sum + g.priorityScore, 0);
+
+  // Phân bổ theo điểm
+  let remaining = Number(amount);
+    const allocations = [];
+
+  weightedGoals.forEach((g, idx) => {
+    const idealAlloc = Math.round((g.priorityScore / totalPriority) * amount);
+    const actualAlloc = Math.min(idealAlloc, g.missing, remaining);
+    if (actualAlloc <= 0) return;
+
+    const goalRaw = rawGoals.find(r => r.id === g.goal_id);
+
+    allocations.push({
+      goal_id: g.goal_id,
+      allocated: actualAlloc,
+      ...goalRaw  // thêm toàn bộ dữ liệu của goal
+    });
+
+    remaining -= actualAlloc;
+  });
+
+  return sendResponse(200, {
+    message: `Smart allocation of ${amount} across ${allocations.length} goals`,
+    data: allocations.filter(a => a.allocated > 0)
+  });
+}
+
+function getRemainingBudget(e) {
+  const { userId, month } = e.parameter;
+  if (!userId || !month) {
+    return sendResponse(400, { message: "Missing 'userId' or 'month' parameter." });
+  }
+
+  const budgets = sheetToObjects(TABLES.monthlyBudgets);
+  const transactions = sheetToObjects(TABLES.transactions);
+  const goalContributions = sheetToObjects(TABLES.goalContributions);
+
+  const budget = budgets.find(b => b.userId === userId && monthStr(b.month) === month);
+  const totalBudget = budget ? Number(budget.amount) : 0;
+
+  let totalSpent = 0;
+
+  transactions.forEach(t => {
+    if (t.userId !== userId || t.type !== 'expense') return;
+
+    const isAmortized = t.is_amortized === true || t.is_amortized === 'TRUE';
+    const amount = Number(t.amount || 0);
+    const transDate = new Date(t.date);
+
+    if (!isAmortized) {
+      if (monthStr(transDate) === month) {
+        totalSpent += amount;
+      }
+    } else {
+      const amortizedDays = parseInt(t.amortized_days || 0, 10);
+      const daysPerMonth = getAmortizedDaysByMonth(transDate, amortizedDays);
+      if (daysPerMonth[month]) {
+        const allocated = (daysPerMonth[month] / amortizedDays) * amount;
+        totalSpent += Math.round(allocated);
+      }
+    }
+  });
+
+  // ✅ Tổng tiền đã phân bổ cho goals
+  const totalGoalAllocated = goalContributions
+    .filter(gc => gc.userId === userId && monthStr(gc.month) === month)
+    .reduce((sum, gc) => sum + Number(gc.amount || 0), 0);
+
+  const remaining = totalBudget - totalSpent - totalGoalAllocated;
+
+  return sendResponse(200, {
+    message: `Remaining budget for ${month}`,
+    data: {
+      month,
+      totalBudget,
+      totalSpent,
+      totalGoalAllocated,
+      remainingBudget: remaining
+    }
+  });
+}
+
+function getUserGoalsWithProgress(e) {
+  const { userId } = e.parameter;
+  if (!userId) return sendResponse(400, { message: 'Missing userId' });
+
+  const goals = sheetToObjects(TABLES.goals).filter(g => g.userId === userId && g.status === 'active');
+  const contributions = sheetToObjects(TABLES.goalContributions).filter(c => c.userId === userId);
+  const transactions = sheetToObjects(TABLES.transactions).filter(t => t.userId === userId && t.type === 'expense');
+  const monthlyBudgets = sheetToObjects(TABLES.monthlyBudgets).filter(b => b.userId === userId);
+
+  const currentMonth = monthStr(new Date());
+  const budgetThisMonth = monthlyBudgets.find(b => monthStr(b.month) === currentMonth);
+  const totalBudget = budgetThisMonth ? +budgetThisMonth.amount : 0;
+  const expensesThisMonth = transactions.filter(t => monthStr(t.date) === currentMonth).reduce((sum, t) => sum + Number(t.amount), 0);
+  const budgetSurplus = Math.max(0, totalBudget - expensesThisMonth);
+  const now = new Date();
+
+  const result = goals.map(goal => {
+    const goalId = goal.id;
+    const targetAmount = Number(goal.amount);
+    const targetDate = goal.target_date ? new Date(goal.target_date) : null;
+
+    const savedContribs = contributions.filter(c => c.goal_id === goalId);
+
+    const currentSaved = savedContribs.reduce((s, c) => s + Number(c.amount), 0);
+    const progressPercent = Math.min(100, Math.round((currentSaved / targetAmount) * 100));
+
+    const monthsLeft = targetDate
+      ? Math.max(1, (targetDate.getFullYear() - now.getFullYear()) * 12 + (targetDate.getMonth() - now.getMonth()))
+      : 1;
+
+    const forecast = [];
+    for (let i = 0; i < monthsLeft; i++) {
+      const d = new Date(now);
+      d.setMonth(d.getMonth() + i);
+      forecast.push({ month: monthStr(d), required: Math.ceil((targetAmount - currentSaved) / monthsLeft) });
+    }
+
+    // history by contribution month
+    const history = {};
+    savedContribs.forEach(c => {
+      const m = c.month;
+      history[m] = (history[m] || 0) + Number(c.amount);
+    });
+
+    const historyArr = Object.entries(history).map(([month, amount]) => ({ month, amount }));
+
+    return {
+      goal_id: goalId,
+      title: goal.title,
+      target_amount: targetAmount,
+      current_saved: currentSaved,
+      progress_percent: progressPercent,
+      months_left: monthsLeft,
+      monthly_required: Math.ceil((targetAmount - currentSaved) / monthsLeft),
+      budget_surplus: budgetSurplus,
+      suggested_saving_this_month: Math.min(budgetSurplus, (targetAmount - currentSaved) / monthsLeft),
+      status: goal.status,
+      history: historyArr,
+      forecast
+    };
+  });
+
+  return sendResponse(200, {
+    message: `Fetched goal progress with history and forecast for user ${userId}`,
+    data: result
+  });
+}
+
+function saveGoalContribution(e) {
+  const body = JSON.parse(e.postData.contents);
+  const { userId, goal_id, amount, source, month } = body;
+
+  if (!userId || !goal_id || !amount) {
+    return sendResponse(400, { message: 'Missing required fields' });
+  }
+
+  const headers = getSheetHeaders(TABLES.goalContributions);
+  const row = {
+    id: Utilities.getUuid(),
+    userId,
+    goal_id,
+    month: month || monthStr(new Date()),
+    amount: Number(amount),
+    source: source || 'manual',
+    created_at: new Date().toISOString()
+  };
+
+  SpreadsheetApp.getActive()
+    .getSheetByName(TABLES.goalContributions)
+    .appendRow(headers.map(h => row[h] || ''));
+
+  return sendResponse(201, { message: 'Saved contribution', data: row });
 }
 
 function getExpensesTransactions(e) {
@@ -8,8 +225,10 @@ function getExpensesTransactions(e) {
   if (!userId) return sendResponse(400, { message: "Missing userId" });
 
   const transactions = sheetToObjects(TABLES.transactions);
+
   const userExpenses = transactions
-    .filter(transaction => transaction.userId === userId && transaction.type === 'expense');
+    .filter(transaction => transaction.userId === userId && transaction.type === 'expense')
+    .sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort by date descending
 
   return sendResponse(200, {
     message: `Fetched expending transaction for user ${userId}`,
