@@ -11,6 +11,8 @@ function doPost(e) {
 
     case 'predictUsageDuration': return predictUsageDuration(e);
     case 'confirmOCRTransaction': return confirmOCRTransaction(e);
+
+    case 'addBillsPayments': return addBillsPayments(e);
         
     // Generic add routes
     case 'addAccounts': return addRecordGeneric(e, TABLES.accounts);
@@ -26,8 +28,8 @@ function doPost(e) {
     case 'addNotifications': return addRecordGeneric(e, TABLES.notifications);
     case 'addMonthlyBudgets': return addRecordGeneric(e, TABLES.monthlyBudgets);
     case 'addMonthlyBudgetAllocations': return addRecordGeneric(e, TABLES.monthlyBudgetAllocations);
-    case 'addGoalContributions': return addRecordGeneric(e, TABLES.goalContributions);
-    case 'addBills': return addBills(e, TABLES.bills);
+    case 'addGoalContributions': return addGoalContributions(e);
+    case 'addBills': return addRecordGeneric(e, TABLES.bills);
 
     // Generic update routes
     case 'updateUsers': return updateUser(e);
@@ -70,6 +72,7 @@ function doGet(e) {
     case 'saveGoalContribution': return saveGoalContribution(e);
     case 'getRemainingBudget': return getRemainingBudget(e);
     case 'allocateSavingToGoals': return allocateSavingToGoals(e);
+    case 'cancelGoal': return cancelGoal(e);
     
     // Users
     case 'getAllUsers': return getAllRecordsGeneric(TABLES.users);
@@ -102,8 +105,8 @@ function doGet(e) {
     case 'deleteTransactionsById': return deleteRecordByIdGeneric(e.parameter.id, TABLES.transactions);
 
     case 'getAllBills': return getAllRecordsGeneric(TABLES.bills);
-    case 'getBillsById': return getRecordByIdGeneric(e, TABLES.bills);
-    case 'getBillsByUser': return getRecordsByUserIdGeneric(e, TABLES.bills);
+    case 'getBillsById': return getBillDetails(e);
+    case 'getBillsByUser': return getBillsByUser(e);
     case 'deleteBillsById': return deleteRecordByIdGeneric(e.parameter.id, TABLES.bills);
 
     case 'getAllCategories': return getAllRecordsGeneric(TABLES.categories);

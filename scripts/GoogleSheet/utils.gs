@@ -11,6 +11,7 @@ const TABLES = {
   monthlyBudgets: 'MonthlyBudgets',
   monthlyBudgetAllocations: 'MonthlyBudgetAllocations',
   bills: 'Bills',
+  billsPayments: 'BillsPayments',
 };
 
 const CATEGORIES_DURATION = { shopping: 90, food_drink: 3, moving: 7, house: 90, health: 30, entertainment: 7, investigation: 365, sociality: 1 };

@@ -47,16 +47,11 @@ function signIn(e) {
   const headers = data[0];
 
   const params = JSON.parse(e.postData.contents);
+  const { email, username, password, via_google } = params;
 
-  if (!params.email && !params.username) {
+  if (!email && !username) {
     return sendResponse(400, { error: "Missing login credentials: email or username is required." });
   }
-
-  if (!params.password && !params.via_google) {
-    return sendResponse(400, { error: "Missing password." });
-  }
-
-  const hashedPassword = hashPassword(params.password);  // Hash the password
 
   const users = data.slice(1).map(row => {
     const user = {};
@@ -65,24 +60,89 @@ function signIn(e) {
   });
 
   const matchUser = users.find(user =>
-    (params.email && user.email?.toLowerCase() === params.email.toLowerCase()) ||
-    (params.username && user.username?.toLowerCase() === params.username.toLowerCase())
+    (via_google && email && user.email?.toLowerCase() === email.toLowerCase()) ||
+    (!via_google && (
+      (email && user.email?.toLowerCase() === email.toLowerCase()) ||
+      (username && user.username?.toLowerCase() === username.toLowerCase())
+    ))
   );
+
+  // === CASE 1: Sign-in via Google ===
+  if (via_google === true) {
+    if (!email) return sendResponse(400, { error: "Email is required for Google sign-in." });
+
+    if (!matchUser) {
+      // Auto-register user
+      const newUser = {
+        id: Utilities.getUuid(),
+        email: email,
+        username: username || email.split('@')[0],
+        avatar: avatar || '',
+        email_verified: true,
+        via_google: true,
+        created_at: new Date().toISOString()
+      };
+
+      const newRow = headers.map(h => newUser[h] || '');
+      sheet.appendRow(newRow);
+
+      return sendResponse(201, {
+        message: "User signed in with Google and auto-registered.",
+        data: {
+          id: newUser.id,
+          email: newUser.email,
+          username: newUser.username,
+          avatar: newUser.avatar,
+          email_verified: true,
+          via_google: true
+        }
+      });
+    }
+
+    // Existing Google user
+    if (!matchUser.via_google) {
+      return sendResponse(403, { error: "This account was not registered via Google." });
+    }
+
+    const { id, username, email: savedEmail, avatar, email_verified } = matchUser;
+    return sendResponse(200, {
+      message: "Signed in with Google successfully.",
+      data: {
+        id, username, email: savedEmail, avatar,
+        email_verified: email_verified === 'TRUE',
+        via_google: true
+      }
+    });
+  }
+
+  // === CASE 2: Normal sign-in ===
+  if (!password) {
+    return sendResponse(400, { error: "Missing password." });
+  }
 
   if (!matchUser) {
     return sendResponse(404, { error: "User not found." });
   }
 
-  // Now compare the hashed password
+  if (matchUser.via_google === 'TRUE') {
+    return sendResponse(403, { error: "This account was registered via Google. Please sign in with Google." });
+  }
+
+  const hashedPassword = hashPassword(password);
+
   if (matchUser.password !== hashedPassword) {
     return sendResponse(401, { error: "Password doesn't match." });
   }
 
-  const { id, username, email, avatar, email_verified, via_google } = matchUser;
+  const { id, username: uname, email: em, avatar: av, email_verified: verified } = matchUser;
 
   return sendResponse(200, {
-    data: { id, username, email, avatar, email_verified, via_google },
-    message: "Sign-in successful."
+    message: "Signed in successfully.",
+    data: {
+      id, username: uname, email: em, avatar: av,
+      email_verified: verified === 'TRUE',
+      via_google: false
+    }
   });
 }
 

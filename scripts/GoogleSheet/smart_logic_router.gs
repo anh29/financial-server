@@ -6,6 +6,370 @@ function monthStr(month) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function formatDate(date) {
+  if (!(date instanceof Date)) date = new Date(date);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function findRowIndexById(sheetName, id) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const idColIndex = headers.indexOf('id');
+
+  if (idColIndex === -1) return -1;
+
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][idColIndex] === id) {
+      return i - 1; // Trả về chỉ số trong sheetToObjects (bỏ dòng header)
+    }
+  }
+
+  return -1;
+}
+
+function appendRow(sheetName, rowObject) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const row = headers.map(h => rowObject[h] !== undefined ? rowObject[h] : '');
+  sheet.appendRow(row);
+}
+
+function monthDiff(start, end, frequency) {
+  const startDate = new Date(monthStr(start) + "-01");
+  const endDate = new Date(monthStr(end) + "-01");
+
+  const years = endDate.getFullYear() - startDate.getFullYear();
+  const months = endDate.getMonth() - startDate.getMonth();
+
+  const totalMonths = years * 12 + months;
+  if (frequency === "quarterly") return Math.ceil(totalMonths / 3) + 1;
+  return totalMonths + 1;
+}
+
+function cancelGoal(e) {
+  const { userId, goal_id } = e.parameter;
+  if (!userId || !goal_id) return sendResponse(400, { message: 'Missing userId or goal_id' });
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(TABLES.goals);
+  const goals = sheetToObjects(TABLES.goals);
+  const goal = goals.find(g => g.id === goal_id && g.userId === userId);
+
+  if (!goal || goal.status !== 'active') {
+    return sendResponse(404, { message: 'Goal not found or already inactive' });
+  }
+
+  const idx = findRowIndexById(TABLES.goals, goal_id);
+  const headers = getSheetHeaders(TABLES.goals);
+
+  if (idx !== -1) {
+    const statusCol = headers.indexOf('status') + 1;
+    const cancelCol = headers.indexOf('cancelled_at') + 1;
+    sheet.getRange(idx + 2, statusCol).setValue('cancelled');
+    sheet.getRange(idx + 2, cancelCol).setValue(new Date().toISOString());
+  }
+
+  return sendResponse(200, {
+    message: `Cancelled goal "${goal.title}"`,
+    data: { goal_id, status: 'cancelled' }
+  });
+}
+
+function getBillDetails(e) {
+  const { userId, bill_id } = e.parameter;
+  if (!userId || !bill_id) return sendResponse(400, { message: "Missing userId or bill_id" });
+
+  const today = new Date();
+  const bills = sheetToObjects(TABLES.bills);
+  const bill = bills.find(b => b.id === bill_id && b.userId === userId);
+
+  if (!bill) return sendResponse(404, { message: "Bill not found" });
+
+  const payments = sheetToObjects(TABLES.bill_payments)
+    .filter(p => p.bill_id === bill_id && p.userId === userId)
+    .sort((a, b) => new Date(b.date_paid) - new Date(a.date_paid)); // Descending
+
+  const paidMonths = new Set(payments.map(p => monthStr(p.month_paid)));
+  const lastPayment = payments[0] || null;
+
+  const dueMonth = monthStr(today);
+  const hasPaidThisPeriod = paidMonths.has(dueMonth);
+
+  const dueDay = Number(bill.day_of_month || 1);
+  const dueDateThisMonth = new Date(today.getFullYear(), today.getMonth(), dueDay);
+  const nextDueDate = addPeriod(dueDateThisMonth, bill.frequency || "monthly", 1);
+
+  const monthsLeft = bill.end_date ? monthDiffStrict(today, bill.end_date, bill.frequency) : null;
+  const totalMonths = bill.end_date ? monthDiffStrict(bill.start_date, bill.end_date, bill.frequency) : null;
+  const progressRatio = totalMonths ? Math.min(1, payments.length / totalMonths) : null;
+
+  return sendResponse(200, {
+    message: `Fetched detail for bill ${bill.title}`,
+    data: {
+      bill_id: bill.id,
+      title: bill.title,
+      amount: Number(bill.amount),
+      category: bill.category,
+      frequency: bill.frequency,
+      start_date: bill.start_date,
+      end_date: bill.end_date || null,
+      day_of_month: bill.day_of_month,
+      status: bill.status,
+      next_due_date: formatDate(nextDueDate),
+      due_day: dueDay,
+      paid_this_period: hasPaidThisPeriod,
+      payment_status: hasPaidThisPeriod ? 'paid' : 'unpaid',
+      last_paid_info: lastPayment ? {
+        amount: Number(lastPayment.amount),
+        month_paid: lastPayment.month_paid,
+        date_paid: lastPayment.date_paid
+      } : null,
+      total_paid_count: payments.length,
+      months_left: monthsLeft,
+      progress_ratio: progressRatio,
+      history: payments.map(p => ({
+        payment_id: p.id,
+        month_paid: p.month_paid,
+        amount: Number(p.amount),
+        date_paid: p.date_paid
+      }))
+    }
+  });
+}
+
+function addBillsPayments(e) {
+  const body = JSON.parse(e.postData.contents);
+  const { bill_id, userId, amount, date_paid, month_paid } = body;
+  const paidDate = new Date(date_paid || new Date());
+  const paidMonth = monthStr(month_paid || paidDate);
+
+  if (!bill_id || !userId || !amount || isNaN(amount)) {
+    return sendResponse(400, { message: "Missing or invalid parameters" });
+  }
+
+  const billsSheet = TABLES.bills;
+  const paymentsSheet = TABLES.billsPayments;
+  const transactionsSheet = TABLES.transactions;
+
+  const allBills = sheetToObjects(billsSheet);
+  const bill = allBills.find(b => b.id === bill_id && b.userId === userId && b.status === 'active');
+
+  if (!bill) {
+    return sendResponse(404, { message: "Bill not found or not active" });
+  }
+
+  const { title, category, frequency, start_date, end_date } = bill;
+
+  // 1. Ghi vào bảng BillPayments
+  const paymentRow = {
+    id: Utilities.getUuid(),
+    bill_id,
+    userId,
+    month_paid: paidMonth,
+    date_paid: formatDate(paidDate),
+    amount: Number(amount),
+    created_at: new Date().toISOString()
+  };
+  appendRow(paymentsSheet, paymentRow);
+
+  // 2. Kiểm tra trạng thái achieved nếu có end_date
+  const allPayments = sheetToObjects(paymentsSheet)
+    .filter(p => p.bill_id === bill_id && p.userId === userId);
+
+  let isAchieved = false;
+  if (end_date) {
+    const totalMonths = monthDiff(start_date, end_date, frequency);
+    const uniqueMonthsPaid = new Set(allPayments.map(p => monthStr(p.month_paid)));
+    if (uniqueMonthsPaid.size >= totalMonths) {
+      // update status
+      const idx = findRowIndexById(billsSheet, bill_id);
+      if (idx !== -1) {
+        const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(billsSheet);
+        sheet.getRange(idx + 2, getColumnIndex(billsSheet, 'status') + 1).setValue('achieved');
+        isAchieved = true;
+      }
+    }
+  }
+
+  // 3. Ghi vào Transactions
+  const transactionRow = {
+    id: Utilities.getUuid(),
+    userId,
+    amount: Number(amount),
+    type: 'expense',
+    description: title,
+    category: category || 'Other',
+    date: paidMonth,
+    source: 'bill',
+    is_amortized: false,
+    amortized_days: '',
+    created_at: new Date().toISOString()
+  };
+  appendRow(transactionsSheet, transactionRow);
+
+  return sendResponse(200, {
+    message: `Added bill payment for ${title}${isAchieved ? ' and marked as achieved' : ''}`,
+    data: {
+      bill_id,
+      payment_id: paymentRow.id,
+      transaction_id: transactionRow.id,
+      achieved: isAchieved
+    }
+  });
+}
+
+function getBillsByUser(e) {
+  const { userId } = e.parameter;
+  if (!userId) return sendResponse(400, { message: "Missing userId" });
+
+  const timezone = Session.getScriptTimeZone();
+  const today = new Date();
+
+  const bills = sheetToObjects(TABLES.bills).filter(b => b.userId === userId && b.status === "active");
+  const payments = sheetToObjects(TABLES.billsPayments).filter(p => p.userId === userId);
+
+  const result = bills.map(bill => {
+    const start = new Date(bill.start_date);
+    const end = bill.end_date ? new Date(bill.end_date) : null;
+    const repeatType = bill.frequency; // monthly, quarterly, etc.
+    const dayOfMonth = Number(bill.day_of_month || 1);
+
+    // Xác định kỳ hạn gần nhất
+    let dueDate = new Date(today.getFullYear(), today.getMonth(), dayOfMonth);
+    while (dueDate < start) {
+      dueDate.setMonth(dueDate.getMonth() + (repeatType === "quarterly" ? 3 : 1));
+    }
+    if (end && dueDate > end) dueDate = null;
+
+    const nextDueDate = dueDate ? new Date(dueDate.getFullYear(), dueDate.getMonth() + (repeatType === "quarterly" ? 3 : 1), dayOfMonth) : null;
+
+    // Tạo key kỳ thanh toán
+    const dueMonthKey = dueDate ? Utilities.formatDate(dueDate, timezone, "yyyy-MM") : null;
+
+    // Lọc các lần thanh toán ứng với kỳ hạn này
+    const billPayments = payments.filter(p => p.bill_id === bill.id);
+
+    const normalizeMonthKey = (val) => {
+      try {
+        const d = new Date(val);
+        if (!isNaN(d)) {
+          return Utilities.formatDate(d, timezone, "yyyy-MM");
+        }
+      } catch (e) {}
+      return val?.slice?.(0, 7) || null;
+    };
+
+    const paidThisPeriod = billPayments.some(p => normalizeMonthKey(p.month_paid) === dueMonthKey);
+
+    const lastPayment = billPayments.sort((a, b) => new Date(b.date_paid) - new Date(a.date_paid))[0];
+
+    // Overdue logic
+    const isOverdue = dueDate && !paidThisPeriod && dueDate < today;
+    const overdueDays = isOverdue ? Math.floor((today - dueDate) / (1000 * 60 * 60 * 24)) : null;
+    const daysUntilDue = !isOverdue && dueDate ? Math.floor((dueDate - today) / (1000 * 60 * 60 * 24)) : null;
+
+    // Progress (nếu có end_date)
+    let monthsLeft = null;
+    let progressRatio = null;
+    if (end) {
+      const totalMonths = monthDiff(start, end, repeatType);
+      const paidCount = billPayments.length;
+      monthsLeft = totalMonths - paidCount;
+      progressRatio = totalMonths > 0 ? parseFloat((paidCount / totalMonths).toFixed(2)) : null;
+    }
+
+    return {
+      bill_id: bill.id,
+      title: bill.title,
+      amount: Number(bill.amount),
+      category: bill.category,
+      repeat_type: bill.frequency,
+      due_date: dueDate ? dueDate.toISOString().split("T")[0] : null,
+      next_due_date: nextDueDate ? nextDueDate.toISOString().split("T")[0] : null,
+      paid_this_period: paidThisPeriod,
+      payment_status: paidThisPeriod ? "paid" : "unpaid",
+      is_overdue: isOverdue,
+      overdue_days: overdueDays,
+      days_until_due: daysUntilDue,
+      last_paid_info: lastPayment
+        ? {
+            payment_date: lastPayment.date_paid,
+            amount: Number(lastPayment.amount),
+            month_paid: normalizeMonthKey(lastPayment.month_paid),
+          }
+        : null,
+      total_paid_count: billPayments.length,
+      months_left: monthsLeft,
+      progress_ratio: progressRatio,
+      start_date: start.toISOString(),
+      end_date: end ? end.toISOString() : null,
+    };
+  });
+
+  return sendResponse(200, {
+    message: `Fetched ${result.length} bills for user ${userId}`,
+    data: result,
+  });
+}
+
+function addGoalContributions(e) {
+  const body = JSON.parse(e.postData.contents);
+
+  if (!Array.isArray(body) || body.length === 0) {
+    return sendResponse(400, { message: 'Invalid or empty contribution list' });
+  }
+
+  const goalSheet = SpreadsheetApp.getActive().getSheetByName(TABLES.goals);
+  const contribSheet = SpreadsheetApp.getActive().getSheetByName(TABLES.goalContributions);
+
+  const goalHeaders = getSheetHeaders(TABLES.goals);
+  const contribHeaders = getSheetHeaders(TABLES.goalContributions);
+
+  const allGoals = sheetToObjects(TABLES.goals);
+  const results = [];
+
+  for (let entry of body) {
+    const { goal_id, allocated, userId, created_at, month } = entry;
+    if (!goal_id || !userId || !allocated || isNaN(allocated)) {
+      results.push({ goal_id, status: 'skipped', reason: 'Missing or invalid fields' });
+      continue;
+    }
+
+    // 1. Append to GoalContributions
+    const row = {
+      id: Utilities.getUuid(),
+      userId,
+      goal_id,
+      month: month || monthStr(new Date()),
+      amount: Number(allocated),
+      source: 'manual',
+      created_at: created_at || new Date().toISOString()
+    };
+    contribSheet.appendRow(contribHeaders.map(h => row[h] || ''));
+
+    // 2. Update missing_amount in Goals
+    const goal = allGoals.find(g => g.id === goal_id && g.userId === userId);
+    if (goal) {
+      const newMissing = Math.max(0, Number(goal.missing_amount || goal.amount) - Number(allocated));
+      const idx = findRowIndexById(TABLES.goals, goal_id);
+      if (idx !== -1) {
+        const col = goalHeaders.indexOf('missing_amount') + 1;
+        goalSheet.getRange(idx + 2, col).setValue(newMissing);
+      }
+    }
+
+    results.push({ goal_id, status: 'added', amount: Number(allocated) });
+  }
+
+  return sendResponse(200, {
+    message: `Processed ${results.length} contributions`,
+    data: results
+  });
+}
+
 function allocateSavingToGoals(e) {
   const { userId, amount } = e.parameter;
   if (!userId || !amount || isNaN(amount) || amount <= 0) {
@@ -47,7 +411,7 @@ function allocateSavingToGoals(e) {
 
   // Phân bổ theo điểm
   let remaining = Number(amount);
-    const allocations = [];
+  const allocations = [];
 
   weightedGoals.forEach((g, idx) => {
     const idealAlloc = Math.round((g.priorityScore / totalPriority) * amount);
