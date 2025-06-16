@@ -53,6 +53,12 @@ const predictCategory = async (req, res) => {
   }
 };
 
+const cancelGoal = async (req, res) => {
+  logger.info("[CANCEL GOAL] Request body:", req.body);
+  const result = await callGAS("cancelGoal", "POST", req.body);
+  res.status(200).json(result);
+};
+
 module.exports = {
   // Marketplace endpoints
   getLatestTransaction: createGASController("getLatestTransaction"),
@@ -81,4 +87,5 @@ module.exports = {
   getUserGoalsWithProgress: createGASController("getUserGoalsWithProgress"),
   getRemainingBudget: createGASController("getRemainingBudget"),
   allocateSavingToGoals: createGASController("allocateSavingToGoals"),
+  cancelGoal: createGASPostController("cancelGoal"),
 };
