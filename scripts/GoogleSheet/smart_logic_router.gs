@@ -6,6 +6,17 @@ function monthStr(month) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function monthDiffStrict(start, end, frequency) {
+  const startDate = new Date(monthStr(start) + "-01");
+  const endDate = new Date(monthStr(end) + "-01");
+
+  let months = (endDate.getFullYear() - startDate.getFullYear()) * 12 +
+               (endDate.getMonth() - startDate.getMonth()) + 1;
+
+  if (frequency === "quarterly") return Math.ceil(months / 3);
+  return months;
+}
+
 function formatDate(date) {
   if (!(date instanceof Date)) date = new Date(date);
   const yyyy = date.getFullYear();
@@ -50,32 +61,29 @@ function monthDiff(start, end, frequency) {
   return totalMonths + 1;
 }
 
-function cancelGoal(e) {
-  const { userId, goal_id } = e.parameter;
-  if (!userId || !goal_id) return sendResponse(400, { message: 'Missing userId or goal_id' });
-
-  const sheet = SpreadsheetApp.getActive().getSheetByName(TABLES.goals);
-  const goals = sheetToObjects(TABLES.goals);
-  const goal = goals.find(g => g.id === goal_id && g.userId === userId);
-
-  if (!goal || goal.status !== 'active') {
-    return sendResponse(404, { message: 'Goal not found or already inactive' });
+function addPeriod(date, frequency, step = 1) {
+  const d = new Date(date); // clone để không mutate
+  if (frequency === 'quarterly') {
+    d.setMonth(d.getMonth() + 3 * step);
+  } else if (frequency === 'monthly') {
+    d.setMonth(d.getMonth() + step);
+  } else if (frequency === 'yearly') {
+    d.setFullYear(d.getFullYear() + step);
   }
+  return d;
+}
 
-  const idx = findRowIndexById(TABLES.goals, goal_id);
-  const headers = getSheetHeaders(TABLES.goals);
+function getDueDate(startDateStr, dayOfMonth, frequency, today = new Date()) {
+  const start = new Date(startDateStr);
+  const base = new Date(today.getFullYear(), today.getMonth(), dayOfMonth);
 
-  if (idx !== -1) {
-    const statusCol = headers.indexOf('status') + 1;
-    const cancelCol = headers.indexOf('cancelled_at') + 1;
-    sheet.getRange(idx + 2, statusCol).setValue('cancelled');
-    sheet.getRange(idx + 2, cancelCol).setValue(new Date().toISOString());
-  }
+  // nếu chưa tới hạn tháng này → lấy kỳ này
+  if (base >= start && base >= today) return base;
 
-  return sendResponse(200, {
-    message: `Cancelled goal "${goal.title}"`,
-    data: { goal_id, status: 'cancelled' }
-  });
+  // nếu đã qua → cộng kỳ tiếp theo
+  const next = new Date(base);
+  next.setMonth(base.getMonth() + (frequency === 'quarterly' ? 3 : 1));
+  return next;
 }
 
 function getBillDetails(e) {
@@ -85,7 +93,6 @@ function getBillDetails(e) {
   const today = new Date();
   const bills = sheetToObjects(TABLES.bills);
   const bill = bills.find(b => b.id === bill_id && b.userId === userId);
-
   if (!bill) return sendResponse(404, { message: "Bill not found" });
 
   const payments = sheetToObjects(TABLES.bill_payments)
@@ -95,15 +102,20 @@ function getBillDetails(e) {
   const paidMonths = new Set(payments.map(p => monthStr(p.month_paid)));
   const lastPayment = payments[0] || null;
 
-  const dueMonth = monthStr(today);
-  const hasPaidThisPeriod = paidMonths.has(dueMonth);
-
   const dueDay = Number(bill.day_of_month || 1);
   const dueDateThisMonth = new Date(today.getFullYear(), today.getMonth(), dueDay);
-  const nextDueDate = addPeriod(dueDateThisMonth, bill.frequency || "monthly", 1);
+  const frequency = bill.frequency || "monthly";
 
-  const monthsLeft = bill.end_date ? monthDiffStrict(today, bill.end_date, bill.frequency) : null;
-  const totalMonths = bill.end_date ? monthDiffStrict(bill.start_date, bill.end_date, bill.frequency) : null;
+  // ❗ Fix: Nếu chưa tới hạn thì kỳ này vẫn là tháng hiện tại
+  const currentDueDate = (today <= dueDateThisMonth)
+    ? dueDateThisMonth
+    : addPeriod(dueDateThisMonth, frequency, 1);
+
+  const dueMonthKey = monthStr(currentDueDate);
+  const hasPaidThisPeriod = paidMonths.has(dueMonthKey);
+
+  const monthsLeft = bill.end_date ? monthDiffStrict(today, bill.end_date, frequency) : null;
+  const totalMonths = bill.end_date ? monthDiffStrict(bill.start_date, bill.end_date, frequency) : null;
   const progressRatio = totalMonths ? Math.min(1, payments.length / totalMonths) : null;
 
   return sendResponse(200, {
@@ -118,7 +130,7 @@ function getBillDetails(e) {
       end_date: bill.end_date || null,
       day_of_month: bill.day_of_month,
       status: bill.status,
-      next_due_date: formatDate(nextDueDate),
+      next_due_date: formatDate(currentDueDate),
       due_day: dueDay,
       paid_this_period: hasPaidThisPeriod,
       payment_status: hasPaidThisPeriod ? 'paid' : 'unpaid',
@@ -156,12 +168,23 @@ function addBillsPayments(e) {
 
   const allBills = sheetToObjects(billsSheet);
   const bill = allBills.find(b => b.id === bill_id && b.userId === userId && b.status === 'active');
-
   if (!bill) {
     return sendResponse(404, { message: "Bill not found or not active" });
   }
 
   const { title, category, frequency, start_date, end_date } = bill;
+
+  // Lấy danh sách thanh toán của bill
+  const allPayments = sheetToObjects(paymentsSheet)
+    .filter(p => p.bill_id === bill_id && p.userId === userId);
+
+  // ❗ Kiểm tra đã thanh toán tháng này chưa
+  const alreadyPaid = allPayments.some(p => monthStr(p.month_paid) === paidMonth);
+  if (alreadyPaid) {
+    return sendResponse(400, {
+      message: `Already paid for this period: ${paidMonth}`
+    });
+  }
 
   // 1. Ghi vào bảng BillPayments
   const paymentRow = {
@@ -176,15 +199,12 @@ function addBillsPayments(e) {
   appendRow(paymentsSheet, paymentRow);
 
   // 2. Kiểm tra trạng thái achieved nếu có end_date
-  const allPayments = sheetToObjects(paymentsSheet)
-    .filter(p => p.bill_id === bill_id && p.userId === userId);
-
   let isAchieved = false;
   if (end_date) {
-    const totalMonths = monthDiff(start_date, end_date, frequency);
+    const totalMonths = monthDiffStrict(start_date, end_date, frequency);
     const uniqueMonthsPaid = new Set(allPayments.map(p => monthStr(p.month_paid)));
+    uniqueMonthsPaid.add(paidMonth); // Tính thêm tháng hiện tại
     if (uniqueMonthsPaid.size >= totalMonths) {
-      // update status
       const idx = findRowIndexById(billsSheet, bill_id);
       if (idx !== -1) {
         const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(billsSheet);
@@ -194,18 +214,21 @@ function addBillsPayments(e) {
     }
   }
 
-  // 3. Ghi vào Transactions
+  // 3. Ghi vào bảng Transactions
+  const isRecurring = frequency === 'monthly' || frequency === 'quarterly';
+  const amortizedDays = isRecurring ? 30 * (frequency === 'quarterly' ? 3 : 1) : '';
+
   const transactionRow = {
     id: Utilities.getUuid(),
     userId,
     amount: Number(amount),
     type: 'expense',
-    description: title,
+    description: `${title} ${paidMonth}`,
     category: category || 'Other',
     date: paidMonth,
     source: 'bill',
-    is_amortized: false,
-    amortized_days: '',
+    is_amortized: isRecurring,
+    amortized_days: amortizedDays,
     created_at: new Date().toISOString()
   };
   appendRow(transactionsSheet, transactionRow);
@@ -227,58 +250,82 @@ function getBillsByUser(e) {
 
   const timezone = Session.getScriptTimeZone();
   const today = new Date();
-
   const bills = sheetToObjects(TABLES.bills).filter(b => b.userId === userId && b.status === "active");
   const payments = sheetToObjects(TABLES.billsPayments).filter(p => p.userId === userId);
 
+  const normalizeMonthKey = (val) => {
+    try {
+      const d = new Date(val);
+      if (!isNaN(d)) return Utilities.formatDate(d, timezone, "yyyy-MM");
+    } catch (e) {}
+    return val?.slice?.(0, 7) || null;
+  };
+
+  function getFirstDueDate(start, dayOfMonth, interval = 1) {
+    let year = start.getFullYear();
+    let month = start.getMonth();
+    while (true) {
+      const trial = new Date(year, month, dayOfMonth);
+      if (trial >= start) return trial;
+      month += interval;
+    }
+  }
+
   const result = bills.map(bill => {
     const start = new Date(bill.start_date);
-    const end = bill.end_date ? new Date(bill.end_date) : null;
-    const repeatType = bill.frequency; // monthly, quarterly, etc.
+    const repeatType = bill.frequency || 'monthly';
+    const interval = repeatType === 'quarterly' ? 3 : 1;
     const dayOfMonth = Number(bill.day_of_month || 1);
 
-    // Xác định kỳ hạn gần nhất
-    let dueDate = new Date(today.getFullYear(), today.getMonth(), dayOfMonth);
-    while (dueDate < start) {
-      dueDate.setMonth(dueDate.getMonth() + (repeatType === "quarterly" ? 3 : 1));
-    }
-    if (end && dueDate > end) dueDate = null;
-
-    const nextDueDate = dueDate ? new Date(dueDate.getFullYear(), dueDate.getMonth() + (repeatType === "quarterly" ? 3 : 1), dayOfMonth) : null;
-
-    // Tạo key kỳ thanh toán
-    const dueMonthKey = dueDate ? Utilities.formatDate(dueDate, timezone, "yyyy-MM") : null;
-
-    // Lọc các lần thanh toán ứng với kỳ hạn này
-    const billPayments = payments.filter(p => p.bill_id === bill.id);
-
-    const normalizeMonthKey = (val) => {
-      try {
-        const d = new Date(val);
-        if (!isNaN(d)) {
-          return Utilities.formatDate(d, timezone, "yyyy-MM");
-        }
-      } catch (e) {}
-      return val?.slice?.(0, 7) || null;
-    };
-
-    const paidThisPeriod = billPayments.some(p => normalizeMonthKey(p.month_paid) === dueMonthKey);
-
+    const billPayments = payments.filter(p => p.bill_id == bill.id);
     const lastPayment = billPayments.sort((a, b) => new Date(b.date_paid) - new Date(a.date_paid))[0];
+    const paidMonthSet = new Set(billPayments.map(p => normalizeMonthKey(p.month_paid)));
 
-    // Overdue logic
-    const isOverdue = dueDate && !paidThisPeriod && dueDate < today;
-    const overdueDays = isOverdue ? Math.floor((today - dueDate) / (1000 * 60 * 60 * 24)) : null;
-    const daysUntilDue = !isOverdue && dueDate ? Math.floor((dueDate - today) / (1000 * 60 * 60 * 24)) : null;
+    let cycleDate = getFirstDueDate(start, dayOfMonth, interval);
+    let dueDate = cycleDate;
+    while (cycleDate <= today) {
+      const key = Utilities.formatDate(cycleDate, timezone, "yyyy-MM");
+      if (!paidMonthSet.has(key)) {
+        dueDate = cycleDate;
+        break;
+      }
+      cycleDate.setMonth(cycleDate.getMonth() + interval);
+      dueDate = cycleDate;
+    }
 
-    // Progress (nếu có end_date)
+    const dueKey = Utilities.formatDate(dueDate, timezone, "yyyy-MM");
+    const hasPaidThisPeriod = paidMonthSet.has(dueKey);
+
+    // 🔍 Kiểm tra các kỳ chưa thanh toán trước kỳ hiện tại
+    let isOverdue = false;
+    let overdueDays = null;
+    let checkDate = getFirstDueDate(start, dayOfMonth, interval);
+    while (checkDate < dueDate) {
+      const checkKey = Utilities.formatDate(checkDate, timezone, "yyyy-MM");
+      const paid = paidMonthSet.has(checkKey);
+      if (!paid && checkDate < today) {
+        isOverdue = true;
+        overdueDays = Math.floor((today - checkDate) / (1000 * 60 * 60 * 24));
+        break;
+      }
+      checkDate.setMonth(checkDate.getMonth() + interval);
+    }
+
+    // ✅ Kiểm tra luôn chính kỳ hạn hiện tại nếu đã quá hạn mà chưa thanh toán
+    if (!isOverdue && dueDate < today && !hasPaidThisPeriod) {
+      isOverdue = true;
+      overdueDays = Math.floor((today - dueDate) / (1000 * 60 * 60 * 24));
+    }
+
+    const nextDueDate = new Date(dueDate);
+    nextDueDate.setMonth(nextDueDate.getMonth() + interval);
+
     let monthsLeft = null;
     let progressRatio = null;
-    if (end) {
-      const totalMonths = monthDiff(start, end, repeatType);
-      const paidCount = billPayments.length;
-      monthsLeft = totalMonths - paidCount;
-      progressRatio = totalMonths > 0 ? parseFloat((paidCount / totalMonths).toFixed(2)) : null;
+    if (bill.end_date) {
+      const totalMonths = monthDiffStrict(bill.start_date, bill.end_date, repeatType);
+      monthsLeft = totalMonths - paidMonthSet.size;
+      progressRatio = totalMonths > 0 ? parseFloat((paidMonthSet.size / totalMonths).toFixed(2)) : null;
     }
 
     return {
@@ -286,14 +333,14 @@ function getBillsByUser(e) {
       title: bill.title,
       amount: Number(bill.amount),
       category: bill.category,
-      repeat_type: bill.frequency,
-      due_date: dueDate ? dueDate.toISOString().split("T")[0] : null,
-      next_due_date: nextDueDate ? nextDueDate.toISOString().split("T")[0] : null,
-      paid_this_period: paidThisPeriod,
-      payment_status: paidThisPeriod ? "paid" : "unpaid",
+      repeat_type: repeatType,
+      due_date: formatDate(dueDate),
+      next_due_date: formatDate(nextDueDate),
+      paid_this_period: hasPaidThisPeriod,
+      payment_status: hasPaidThisPeriod ? "paid" : "unpaid",
       is_overdue: isOverdue,
-      overdue_days: overdueDays,
-      days_until_due: daysUntilDue,
+      overdue_days: isOverdue ? overdueDays : null,
+      days_until_due: !isOverdue ? Math.floor((dueDate - today) / (1000 * 60 * 60 * 24)) : null,
       last_paid_info: lastPayment
         ? {
             payment_date: lastPayment.date_paid,
@@ -305,13 +352,42 @@ function getBillsByUser(e) {
       months_left: monthsLeft,
       progress_ratio: progressRatio,
       start_date: start.toISOString(),
-      end_date: end ? end.toISOString() : null,
+      end_date: bill.end_date ? new Date(bill.end_date).toISOString() : null,
     };
   });
 
   return sendResponse(200, {
     message: `Fetched ${result.length} bills for user ${userId}`,
     data: result,
+  });
+}
+
+function cancelGoal(e) {
+  const params = JSON.parse(e.postData.contents || '{}');
+  const { userId, goal_id } = params;
+  if (!userId || !goal_id) return sendResponse(400, { message: 'Missing userId or goal_id' });
+
+  const sheet = SpreadsheetApp.getActive().getSheetByName(TABLES.goals);
+  const goals = sheetToObjects(TABLES.goals);
+  const goal = goals.find(g => g.id === goal_id && g.userId === userId);
+
+  if (!goal || goal.status !== 'active') {
+    return sendResponse(404, { message: 'Goal not found or already inactive' });
+  }
+
+  const idx = findRowIndexById(TABLES.goals, goal_id);
+  const headers = getSheetHeaders(TABLES.goals);
+
+  if (idx !== -1) {
+    const statusCol = headers.indexOf('status') + 1;
+    const cancelCol = headers.indexOf('cancelled_at') + 1;
+    sheet.getRange(idx + 2, statusCol).setValue('cancelled');
+    sheet.getRange(idx + 2, cancelCol).setValue(new Date().toISOString());
+  }
+
+  return sendResponse(200, {
+    message: `Cancelled goal "${goal.description}"`,
+    data: { goal_id, status: 'cancelled' }
   });
 }
 

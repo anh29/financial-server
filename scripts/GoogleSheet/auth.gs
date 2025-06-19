@@ -38,7 +38,7 @@ function createUser(e) {
     params.password = hashPassword(params.password);
   }
 
-  return addRecordGeneric(e, TABLES.users, params);
+  return addRecordGeneric({ postData: { contents: JSON.stringify([params]) } }, TABLES.users);
 }
 
 function signIn(e) {

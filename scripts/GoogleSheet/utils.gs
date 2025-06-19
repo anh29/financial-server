@@ -48,6 +48,8 @@ function addRecordGeneric(e, sheetName) {
   const sheet = SpreadsheetApp.getActive().getSheetByName(sheetName);
   const headers = getSheetHeaders(sheetName);
   const bodyArray = JSON.parse(e.postData.contents); // should be an array of records
+  // console.log('e.postData.contents', e.postData.contents)
+  // console.log('bodyArray', bodyArray)
 
   if (!Array.isArray(bodyArray)) {
     return sendResponse(400, { message: "Expected an array of records." });

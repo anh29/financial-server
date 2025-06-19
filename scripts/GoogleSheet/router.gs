@@ -13,7 +13,9 @@ function doPost(e) {
     case 'confirmOCRTransaction': return confirmOCRTransaction(e);
 
     case 'addBillsPayments': return addBillsPayments(e);
-        
+    
+    case 'cancelGoal': return cancelGoal(e);
+
     // Generic add routes
     case 'addAccounts': return addRecordGeneric(e, TABLES.accounts);
     case 'addTransactions': return addRecordGeneric(e, TABLES.transactions);
@@ -72,7 +74,6 @@ function doGet(e) {
     case 'saveGoalContribution': return saveGoalContribution(e);
     case 'getRemainingBudget': return getRemainingBudget(e);
     case 'allocateSavingToGoals': return allocateSavingToGoals(e);
-    case 'cancelGoal': return cancelGoal(e);
     
     // Users
     case 'getAllUsers': return getAllRecordsGeneric(TABLES.users);
