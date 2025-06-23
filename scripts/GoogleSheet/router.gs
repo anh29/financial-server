@@ -74,6 +74,9 @@ function doGet(e) {
     case 'saveGoalContribution': return saveGoalContribution(e);
     case 'getRemainingBudget': return getRemainingBudget(e);
     case 'allocateSavingToGoals': return allocateSavingToGoals(e);
+
+    case 'getMonthlyCategoryExpenses': return getMonthlyCategoryExpenses(e);
+    case 'suggestSmartBudget': return suggestSmartBudget(e);
     
     // Users
     case 'getAllUsers': return getAllRecordsGeneric(TABLES.users);

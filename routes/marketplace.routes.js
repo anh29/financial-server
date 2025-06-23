@@ -22,6 +22,7 @@ const {
   getRemainingBudget,
   allocateSavingToGoals,
   cancelGoal,
+  getMonthlyCategoryExpenses,
 } = require("../controllers/marketplace.controller");
 
 const router = express.Router();
@@ -61,5 +62,7 @@ router.get("/getRemainingBudget/user/:userId/month/:month", getRemainingBudget);
 router.get("/allocateSavingToGoals/user/:userId/amount/:amount", allocateSavingToGoals);
 
 router.post("/cancelGoal", cancelGoal);
+
+router.get("/getMonthlyCategoryExpenses", getMonthlyCategoryExpenses);
 
 module.exports = router;

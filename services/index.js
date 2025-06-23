@@ -11,9 +11,7 @@ const callGAS = async (path, method = "GET", payload = {}) => {
       url += `&${key}=${value}`;
     });
   }
-  console.log(`[GAS] ${method} ${path} URL:`, path);
-  console.log(`[GAS] ${method} ${path} Payload:`, payload);
-
+  
   try {
     const res = await axios({
       method,
@@ -26,10 +24,6 @@ const callGAS = async (path, method = "GET", payload = {}) => {
 
     return res.data;
   } catch (error) {
-    console.error(
-      `❌ GAS call failed [${path}]:`,
-      error.response?.data || error.message
-    );
     return {
       success: false,
       message: "Google Apps Script API call failed",
@@ -61,7 +55,6 @@ async function sendToGoogleAppsScript({ method, params, type }) {
 
     return res.data;
   } catch (err) {
-    console.error(`[Google Script API Error]`, err);
     return {
       status: 500,
       message: `Server error while contacting Google Script: ${err}`,
