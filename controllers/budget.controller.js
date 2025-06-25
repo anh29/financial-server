@@ -11,32 +11,23 @@ const openai = new OpenAI({
 
 const suggestSmartBudget = async (req, res) => {
   try {
-    console.log("Starting suggestSmartBudget function");
-
     const { userId } = req.params;
-    console.log("Received userId:", userId);
 
     if (!userId) {
-      console.log("userId is missing");
       return errorResponse(res, 400, "userId is required");
     }
 
     // Call Google Apps Script API to get budget data with timeout
-    console.log("Calling Google Apps Script API");
     const budgetDataResponse = await axios.get(
       `${GOOGLE_SCRIPT_URL}?path=suggestSmartBudget&userId=${userId}`,
       { timeout: 10000 } // Set timeout to 10 seconds
     );
 
-    console.log("Google Apps Script API response received");
-
     if (budgetDataResponse.data.status !== 200) {
-      console.log("Failed to fetch budget data");
       return errorResponse(res, 400, "Failed to fetch budget data");
     }
 
     const budgetData = budgetDataResponse.data.data;
-    console.log("Budget data:", budgetData);
 
     // Calculate total budget for next month (average of last 3 months income)
     const monthlyBudgets = budgetData.monthlyBudgets;
@@ -48,10 +39,7 @@ const suggestSmartBudget = async (req, res) => {
       recentIncomes.length;
     const totalBudget = Math.round(averageIncome);
 
-    console.log("Calculated total budget:", totalBudget);
-
     // Call OpenAI API with timeout
-    console.log("Calling OpenAI API");
     const prompt = buildPromptFromData(budgetData, totalBudget);
 
     const completion = await openai.chat.completions.create({
@@ -71,10 +59,7 @@ const suggestSmartBudget = async (req, res) => {
       max_tokens: 1000,
     });
 
-    console.log("OpenAI API response received");
-
     const responseContent = completion.choices[0].message.content.trim();
-    console.log("OpenAI Response:", responseContent);
 
     // Try to parse JSON response with improved logic
     let parsedResponse;
@@ -88,7 +73,6 @@ const suggestSmartBudget = async (req, res) => {
       // Parse sanitized JSON
       parsedResponse = JSON.parse(sanitizedResponse);
     } catch (parseError1) {
-      console.log("Error parsing OpenAI response:", parseError1);
       try {
         // Fallback: Extract JSON object from text
         const jsonObjectMatch = responseContent.match(/\{[\s\S]*\}/);
@@ -99,7 +83,6 @@ const suggestSmartBudget = async (req, res) => {
           throw new Error("No valid JSON found in response");
         }
       } catch (parseError2) {
-        console.log("Fallback logic due to parsing error:", parseError2);
         const totalBills = budgetData.bills.reduce(
           (sum, bill) => sum + bill.amount,
           0
@@ -120,12 +103,10 @@ const suggestSmartBudget = async (req, res) => {
             { category: "Du lịch", amount: Math.round(remainingBudget * 0.02) },
           ],
           reasoning:
-            "Tự động phân bổ ngân sách dựa trên tỷ lệ chuẩn do lỗi parse AI response",
+            "Tự động phân bổ ngân sách dựa trên tỷ lệ chuẩn",
         };
       }
     }
-
-    console.log("Parsed response:", parsedResponse);
 
     return successResponse(
       res,
@@ -134,8 +115,6 @@ const suggestSmartBudget = async (req, res) => {
       parsedResponse
     );
   } catch (error) {
-    console.error("Error in suggestSmartBudget:", error);
-
     if (error.response) {
       return errorResponse(
         res,
